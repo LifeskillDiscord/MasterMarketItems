@@ -1,6 +1,4 @@
-"use strict";
-
-function marketcustomAjax(formId, ajax) {
+async function marketAjax(formId, ajax) {
   pending(true);
 
   if ($.isEmptyObject(ajax) && isEmpty(ajax)) {
@@ -8,17 +6,15 @@ function marketcustomAjax(formId, ajax) {
     console.error("data error!");
     return;
   }
-
   var data = {};
-  var $frm = $("#" + formId);
 
+  var $frm = $("#" + formId);
   if ($frm.length <= 0) {
     data = ajax.data || {};
   } else {
     setHiddenField($frm, ajax.data);
     data = $frm.serializeArray();
   }
-
   if (0 < data.length) {
     var removeCommaList = ["buyCount", "sellCount"];
     data.forEach(function (item) {
@@ -42,7 +38,6 @@ function marketcustomAjax(formId, ajax) {
       if ($.isFunction(ajax.complete)) {
         ajax.complete(xhr, status);
       }
-
       pending(false);
     },
     success: function (result, status, xhr) {
@@ -56,7 +51,6 @@ function marketcustomAjax(formId, ajax) {
             window.location = result.redirectUrl;
             break;
         }
-
         return result;
       }
     },
@@ -64,161 +58,125 @@ function marketcustomAjax(formId, ajax) {
       if ($.isFunction(error.beforeSend)) {
         error.beforeSend(xhr, status, error);
       }
-
       console.log(error);
-    }
+    },
   });
-  return new Promise((resolve, reject) => {
-    resolve(result);
-  });
+  return result;
 }
 
-async function marketloadList(category) {
-  const result = await marketcustomAjax("frmGetWorldMarketList", {
+async function loadCategoryList(category) {
+  const result = await marketAjax("frmGetWorldMarketList", {
     url: "/Home/GetWorldMarketList",
     type: "POST",
     data: {
       mainCategory: category.mainCategory,
-      subCategory: category.subCategory
+      subCategory: category.subCategory,
     },
-    beforeSend: function (xhr, settings) {},
-    complete: function (xhr, status) {},
+    beforeSend: function (xhr, settings) { },
+    complete: function (xhr, status) { },
     success: function (result, status, xhr) {
       if (result.resultCode != 0) {
         if (result.resultCode == -8745) {
           window.location = result.resultMsg;
           return;
         }
-
         alert(getResourceValue(result.resultMsg));
         return;
       }
-
       if (!result.marketList) {
         return;
       }
-
       _cache.marketList = result.marketList.slice();
       return result.marketList.slice();
     },
-    error: function (xhr, status, error) {}
+    error: function (xhr, status, error) { },
   });
-  return new Promise((resolve, reject) => {
-    resolve({
-      category: category,
-      marketList: result.marketList
-    });
-  });
+  return { category: category, marketList: result.marketList };
 }
 
-async function marketloadSubList(categoryItem) {
-  const result = await marketcustomAjax("frmGetWorldMarketSubList", {
+async function loadItemList(categoryItem) {
+  const tradeResult = await marketAjax("frmGetWorldMarketSubList", {
+    url: "/Trademarket/GetWorldMarketSubList",
+    type: "POST",
+    data: { mainKey: categoryItem.mainKey, keyType: 0 },
+    beforeSend: function (xhr, settings) { },
+    complete: function (xhr, status) { },
+    success: function (result, status, xhr) {
+      if (result.resultCode != 0) {
+          alert(getResourceValue(result.resultMsg));
+          return;
+      }
+      if (!result.resultMsg) {
+          return;
+      }
+      return result.resultMsg
+    },
+    error: function (xhr, status, error) { }
+  });
+  let tradeDetails = await tradeResult.resultMsg.split("|").filter(x => x)
+    .map(detail => detail.split("-"))
+    .map((values) => {return {minCap: values[6], maxCap: values[7]} })
+
+  const marketResult = await marketAjax("frmGetWorldMarketSubList", {
     url: "/Home/GetWorldMarketSubList",
     type: "POST",
-    data: {
-      mainKey: categoryItem.mainKey,
-      usingCleint: 0
-    },
-    beforeSend: function (xhr, settings) {},
-    complete: function (xhr, status) {},
+    data: { mainKey: categoryItem.mainKey, usingCleint: 0 },
+    beforeSend: function (xhr, settings) { },
+    complete: function (xhr, status) { },
     success: function (result, status, xhr) {
       if (result.resultCode != 0) {
         alert(getResourceValue(result.resultMsg));
         return;
       }
-
       if (!result.detailList) {
         return;
       }
-
       $(".sortFilter").hide();
       _cache.subList = result.detailList.slice();
-      result.info = arrangeItemInfo(result.detailList);
-      result.detailList.forEach(function (item) {
-        item.pricePerOne = renderComma(item.pricePerOne);
+      result.detailList.forEach(function (item, i) {
         item.iconPath = renderThumbUrl(item.mainKey);
-
+        item.description = item.name;
         if (1 < _cache.subList.length) {
           if (1 < _cache.subList[1].subKey - _cache.subList[0].subKey) {
-            item.name =
+            item.description =
               getEnchantString("normal", item) +
-              item.name +
+              item.description +
               getEnchantString("group", item);
           } else {
-            item.name = getEnchantString("normal", item) + item.name;
+            item.description =
+              getEnchantString("normal", item) + item.description;
           }
         }
-
-        item.sumCountText = getResourceValue("TRADE_MARKET_EA").replace(
-          "[STR:ITEMCOUNT]",
-          result.info.sumCount
-        );
-        item.countText = getResourceValue("TRADE_MARKET_EA").replace(
-          "[STR:ITEMCOUNT]",
-          item.count
-        );
+        item.minCap = tradeDetails[i].minCap;
+        item.maxCap = tradeDetails[i].maxCap;
       });
       return result;
     },
-    error: function (xhr, status, error) {}
+    error: function (xhr, status, error) { },
   });
-  return new Promise((resolve, reject) => {
-    resolve({
-      categoryItem: categoryItem,
-      detailList: result.detailList
-    });
-  });
+  return { categoryItem: categoryItem, detailList: marketResult.detailList };
 }
 
-function getCategoryList() {
-  var result = [];
-  $(".categoryList label ul li").each(function (e) {
-    result.push({
-      mainLabel: $(this).closest("label").find("span").text(),
-      subLabel: $(this).text(),
-      mainCategory: $(this).data().main,
-      subCategory: $(this).data().sub
-    });
-    return;
-  });
-  return result; //.slice(0, 1); // for testing
-}
-
-async function getMasterMarketItemsList() {
-  // Takes right about 10 minutes to build the full listing.
-  const categoryItemLists = await Promise.all(
-    getCategoryList().map(async (category) => {
-      return marketloadList(category);
-    })
-  );
-  let categoryItems = categoryItemLists
+function spreadmergeItemLists(itemLists) {
+  return itemLists
     .map((e) => {
-      return e.marketList.map((marketItem) => {
-        return { ...e.category, ...marketItem };
+      let keys = Object.keys(e);
+      return e[keys[1]].map((el) => {
+        return { ...e[keys[0]], ...el };
       });
     })
     .flat(1);
-  const marketItemLists = await categoryItems.reduce(
-    async (memo, categoryItem) => {
-      const results = await memo;
-      const itemDetail = await marketloadSubList(categoryItem);
-      return [...results, itemDetail];
-    },
-    []
-  );
-  let marketItems = marketItemLists
-    .map((e) => {
-      return e.detailList.map((itemDetail) => {
-        return { ...e.categoryItem, ...itemDetail };
-      });
-    })
-    .flat(1);
-  marketItems = marketItems.map((item) => {
+}
+
+async function arrangeMarketItemInfo(marketItems) {
+  return marketItems.map((item) => {
     return {
       mainLabel: item.mainLabel,
       subLabel: item.subLabel,
       icon: item.iconPath.replace("url", "=IMAGE"),
-      description: item.name,
+      description: item.description,
+      minCap: item.minCap,
+      maxCap: item.maxCap,
       activate: false,
       mainCategory: item.mainCategory,
       subCategory: item.subCategory,
@@ -227,13 +185,54 @@ async function getMasterMarketItemsList() {
       mainKey: item.mainKey,
       subKey: item.subKey,
       chooseKey: item.chooseKey,
-      name: item.name
+      name: item.name,
     };
-  });
-  return new Promise((resolve, reject) => {
-    resolve(marketItems);
   });
 }
 
-var masterMarketItemsList;
-getMasterMarketItemsList().then((result) => (masterMarketItemsList = result));
+function getCategoryList() {
+  let result = [];
+  document.querySelectorAll(".categoryList label li").forEach((li) => {
+    result.push({
+      mainLabel: li.parentNode.parentNode.querySelector("span").innerText,
+      subLabel: li.innerText,
+      mainCategory: li.dataset.main,
+      subCategory: li.dataset.sub,
+    });
+  });
+  return result; // .slice(0, 1); // for testing
+}
+
+async function getCategoryItems() {
+  return Promise.all(
+    getCategoryList().map(async (category) => {
+      return loadCategoryList(category);
+    })
+  )
+    .then(spreadmergeItemLists)
+}
+
+async function getMarketItems() {
+  return getCategoryItems()
+    .then((categoryItems) =>
+      categoryItems.reduce(async (memo, item) => {
+        const results = await memo;
+        const itemList = await loadItemList(item);
+        return [...results, itemList];
+      }, [])
+    )
+    .then(spreadmergeItemLists)
+    .then(arrangeMarketItemInfo);
+}
+
+var marketItems;
+var t0 = performance.now();
+getMarketItems()
+  .then((result) => (marketItems = result))
+  .then((result) => {
+    var t1 = performance.now();
+    let elapsedTime = new Date(t1 - t0).toISOString().slice(11, -1);
+    console.log(
+      "Completed in " + elapsedTime + " with: " + result.length + " rows."
+    );
+  });
